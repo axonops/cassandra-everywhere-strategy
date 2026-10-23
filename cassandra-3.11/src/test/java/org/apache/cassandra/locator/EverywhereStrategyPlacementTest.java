@@ -20,11 +20,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Random;
+import java.util.Set;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;
 
 import static org.apache.cassandra.locator.Ring.ip;
@@ -183,5 +188,57 @@ public class EverywhereStrategyPlacementTest {
         EverywhereStrategy s = strategy(Ring.standard());
         assertEquals(0, s.getReplicationFactor("nope"));
         assertEquals(0, s.getReplicationFactor(null));
+    }
+
+    @Test
+    public void earlyExitMatchesAFullRingWalkOnAVnodeRing() {
+        Random random = new Random(20261023L);
+        Set<Long> used = new HashSet<>();
+        Ring ring = new Ring();
+        for (int dc = 1; dc <= 2; dc++) {
+            for (int n = 1; n <= 6; n++) {
+                long[] tokens = new long[16];
+                for (int i = 0; i < tokens.length; i++) {
+                    tokens[i] = uniqueRandomToken(random, used);
+                }
+                ring.node("127.0." + dc + "." + n, "dc" + dc, "r" + (n % 2 + 1), tokens);
+            }
+        }
+        // A bootstrapping node must not be picked up by either walk.
+        ring.bootstrap("127.0.2.7", "dc2", "r1", uniqueRandomToken(random, used));
+        TokenMetadata tm = ring.tm();
+        EverywhereStrategy s = strategy(ring);
+
+        List<Token> searchTokens = new ArrayList<>(tm.sortedTokens());
+        assertEquals(12 * 16, searchTokens.size());
+        searchTokens.add(t(Long.MIN_VALUE));
+        searchTokens.add(t(Long.MAX_VALUE));
+        for (int i = 0; i < 50; i++) {
+            searchTokens.add(t(uniqueRandomToken(random, used)));
+        }
+
+        for (Token token : searchTokens) {
+            List<InetAddress> expected = fullRingWalk(token, tm);
+            assertEquals(12, expected.size());
+            assertEquals("token " + token, expected, s.calculateNaturalEndpoints(token, tm));
+        }
+    }
+
+    /** Reference implementation: every endpoint in ring order from the owner of {@code token}, no early exit. */
+    private static List<InetAddress> fullRingWalk(Token token, TokenMetadata tm) {
+        Set<InetAddress> out = new LinkedHashSet<>();
+        Iterator<Token> it = TokenMetadata.ringIterator(tm.sortedTokens(), token, false);
+        while (it.hasNext()) {
+            out.add(tm.getEndpoint(it.next()));
+        }
+        return new ArrayList<>(out);
+    }
+
+    private static long uniqueRandomToken(Random random, Set<Long> used) {
+        long v;
+        do {
+            v = random.nextLong();
+        } while (v == Long.MIN_VALUE || !used.add(v));
+        return v;
     }
 }

@@ -71,12 +71,18 @@ public class EverywhereStrategy extends NetworkTopologyStrategy {
      * Every normal-token endpoint in {@code metadata}, in ring order starting at the primary owner of
      * {@code searchToken}. Uses the metadata passed in (not the field) so that pending-range
      * calculations on cloned metadata see the hypothetical ring.
+     *
+     * <p>The walk stops as soon as every normal endpoint has been seen, so callers that iterate over all
+     * tokens (getAddressRanges, getRangeAddresses, pending-range calculation) do not cost O(T^2) on vnode
+     * rings. The topology of {@code metadata} holds exactly the endpoints that own normal tokens, so the
+     * result is identical to a full walk.
      */
     @Override
     public List<InetAddress> calculateNaturalEndpoints(Token searchToken, TokenMetadata metadata) {
+        int total = metadata.getTopology().getDatacenterEndpoints().size();
         Set<InetAddress> replicas = new LinkedHashSet<>();
         Iterator<Token> tokens = TokenMetadata.ringIterator(metadata.sortedTokens(), searchToken, false);
-        while (tokens.hasNext()) {
+        while (replicas.size() < total && tokens.hasNext()) {
             replicas.add(metadata.getEndpoint(tokens.next()));
         }
         return new ArrayList<>(replicas);
