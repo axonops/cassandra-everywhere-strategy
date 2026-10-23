@@ -17,6 +17,7 @@ package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -27,6 +28,9 @@ import java.util.Set;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.dht.Token;
 
 /**
@@ -34,12 +38,33 @@ import org.apache.cassandra.dht.Token;
  * placing a replica of every range on every node.
  */
 public class EverywhereStrategy extends NetworkTopologyStrategy {
+    private static final Logger logger = LoggerFactory.getLogger(EverywhereStrategy.class);
+
     private final TokenMetadata tokenMetadata;
 
     public EverywhereStrategy(String keyspaceName, TokenMetadata tokenMetadata, IEndpointSnitch snitch,
                               Map<String, String> configOptions) {
         super(keyspaceName, tokenMetadata, snitch, Collections.<String, String>emptyMap());
         this.tokenMetadata = tokenMetadata;
+        logger.info("EverywhereStrategy in use for keyspace {}", keyspaceName);
+        if (configOptions != null && !configOptions.isEmpty()) {
+            logger.warn("EverywhereStrategy ignores replication options for keyspace {}: {}", keyspaceName, configOptions);
+        }
+    }
+
+    /** Options are ignored (with a warning at construction), so there is nothing to validate. */
+    @Override
+    public void validateOptions() {
+    }
+
+    /** NetworkTopologyStrategy's version consults StorageService; there is nothing to warn about here. */
+    @Override
+    public void maybeWarnOnOptions() {
+    }
+
+    @Override
+    public Collection<String> recognizedOptions() {
+        return Collections.emptySet();
     }
 
     /**
