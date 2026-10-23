@@ -25,6 +25,8 @@ import java.util.List;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.service.StorageService;
+
 import static org.apache.cassandra.locator.Ring.ip;
 import static org.apache.cassandra.locator.Ring.t;
 import static org.junit.Assert.assertEquals;
@@ -164,6 +166,16 @@ public class EverywhereStrategyPlacementTest {
         assertEquals(0, s.getReplicationFactor("dc1"));
         assertTrue(s.getDatacenters().isEmpty());
         assertTrue(s.calculateNaturalEndpoints(t(0), tm).isEmpty());
+    }
+
+    @Test
+    public void replicationFactorsWorkOnTheLiveNodeTokenMetadata() {
+        // On a running node the strategy holds StorageService's own TokenMetadata, whose getTopology()
+        // asserts it is not called directly (Cassandra runs with -ea by default).
+        EverywhereStrategy s = strategy(StorageService.instance.getTokenMetadata());
+        assertEquals(0, s.getReplicationFactor());
+        assertEquals(0, s.getReplicationFactor("dc1"));
+        assertTrue(s.getDatacenters().isEmpty());
     }
 
     @Test

@@ -17,7 +17,6 @@ package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -26,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 
 import org.apache.cassandra.dht.Token;
 
@@ -60,7 +60,7 @@ public class EverywhereStrategy extends NetworkTopologyStrategy {
     /** Number of normal-token nodes in the cluster; bootstrapping nodes are not counted. */
     @Override
     public int getReplicationFactor() {
-        return tokenMetadata.getTopology().getDatacenterEndpoints().size();
+        return dcEndpoints().size();
     }
 
     /** Number of normal-token nodes in {@code dc}; 0 for a null or unknown datacenter. */
@@ -69,13 +69,22 @@ public class EverywhereStrategy extends NetworkTopologyStrategy {
         if (dc == null) {
             return 0;
         }
-        Collection<InetAddress> endpoints = tokenMetadata.getTopology().getDatacenterEndpoints().get(dc);
-        return endpoints.size();
+        return dcEndpoints().get(dc).size();
     }
 
     /** Datacenters that currently contain at least one normal-token node. */
     @Override
     public Set<String> getDatacenters() {
-        return ImmutableSet.copyOf(tokenMetadata.getTopology().getDatacenterEndpoints().keySet());
+        return ImmutableSet.copyOf(dcEndpoints().keySet());
+    }
+
+    /**
+     * Normal-token endpoints per datacenter. Read from the cached token-map clone because
+     * {@link TokenMetadata#getTopology()} asserts it is never called on StorageService's live instance,
+     * which is the instance a running node passes to this strategy. The clone is invalidated on every
+     * ring change, so the counts stay live.
+     */
+    private Multimap<String, InetAddress> dcEndpoints() {
+        return tokenMetadata.cachedOnlyTokenMap().getTopology().getDatacenterEndpoints();
     }
 }
