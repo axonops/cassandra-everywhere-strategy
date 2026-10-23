@@ -16,9 +16,18 @@
 package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
+import com.google.common.collect.ImmutableSet;
+
+import org.apache.cassandra.dht.Token;
 
 /**
  * Replication strategy compatible with DataStax Enterprise's EverywhereStrategy,
@@ -33,8 +42,40 @@ public class EverywhereStrategy extends NetworkTopologyStrategy {
         this.tokenMetadata = tokenMetadata;
     }
 
+    /**
+     * Every normal-token endpoint in {@code metadata}, in ring order starting at the primary owner of
+     * {@code searchToken}. Uses the metadata passed in (not the field) so that pending-range
+     * calculations on cloned metadata see the hypothetical ring.
+     */
     @Override
-    public List<InetAddress> calculateNaturalEndpoints(org.apache.cassandra.dht.Token token, TokenMetadata metadata) {
-        return Collections.emptyList();
+    public List<InetAddress> calculateNaturalEndpoints(Token searchToken, TokenMetadata metadata) {
+        Set<InetAddress> replicas = new LinkedHashSet<>();
+        Iterator<Token> tokens = TokenMetadata.ringIterator(metadata.sortedTokens(), searchToken, false);
+        while (tokens.hasNext()) {
+            replicas.add(metadata.getEndpoint(tokens.next()));
+        }
+        return new ArrayList<>(replicas);
+    }
+
+    /** Number of normal-token nodes in the cluster; bootstrapping nodes are not counted. */
+    @Override
+    public int getReplicationFactor() {
+        return tokenMetadata.getTopology().getDatacenterEndpoints().size();
+    }
+
+    /** Number of normal-token nodes in {@code dc}; 0 for a null or unknown datacenter. */
+    @Override
+    public int getReplicationFactor(String dc) {
+        if (dc == null) {
+            return 0;
+        }
+        Collection<InetAddress> endpoints = tokenMetadata.getTopology().getDatacenterEndpoints().get(dc);
+        return endpoints.size();
+    }
+
+    /** Datacenters that currently contain at least one normal-token node. */
+    @Override
+    public Set<String> getDatacenters() {
+        return ImmutableSet.copyOf(tokenMetadata.getTopology().getDatacenterEndpoints().keySet());
     }
 }

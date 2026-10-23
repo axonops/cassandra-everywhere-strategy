@@ -17,6 +17,8 @@ package org.apache.cassandra.locator;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -43,6 +45,19 @@ public class Ring {
 
     public Ring() {
         initCassandra();
+    }
+
+    /**
+     * The five-node "standard ring": dc1 = 127.0.0.1 (r1, 0), 127.0.0.2 (r1, 100), 127.0.0.3 (r2, 200);
+     * dc2 = 127.0.1.1 (r1, 50), 127.0.1.2 (r1, 150).
+     */
+    public static Ring standard() {
+        return new Ring()
+            .node("127.0.0.1", "dc1", "r1", 0)
+            .node("127.0.0.2", "dc1", "r1", 100)
+            .node("127.0.0.3", "dc1", "r2", 200)
+            .node("127.0.1.1", "dc2", "r1", 50)
+            .node("127.0.1.2", "dc2", "r1", 150);
     }
 
     public Ring node(String ip, String dc, String rack, long... tokens) {
@@ -93,8 +108,8 @@ public class Ring {
         tm.updateHostId(UUID.randomUUID(), ip(ip));
     }
 
-    private static java.util.List<Token> tokens(long... values) {
-        java.util.List<Token> out = new java.util.ArrayList<>();
+    private static List<Token> tokens(long... values) {
+        List<Token> out = new ArrayList<>();
         for (long v : values) {
             out.add(t(v));
         }
