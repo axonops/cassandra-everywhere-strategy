@@ -17,9 +17,7 @@ name: CI
 on:
   pull_request:
   push:
-    # TEMPORARY: initial-implementation is listed so CI runs on that branch before a PR exists.
-    # Remove it (leaving only main) before merging.
-    branches: [main, initial-implementation]
+    branches: [main]
 
 permissions:
   contents: read
