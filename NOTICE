@@ -1,0 +1,9 @@
+cassandra-everywhere-strategy
+Copyright 2026 AxonOps
+
+This product includes software developed at AxonOps (https://axonops.com/).
+
+The observable behaviour of the EverywhereStrategy replication strategy in
+DataStax's Apache-2.0 licensed Cassandra fork (github.com/datastax/cassandra)
+was used as a behavioural reference. No code from that project was copied or
+adapted.
