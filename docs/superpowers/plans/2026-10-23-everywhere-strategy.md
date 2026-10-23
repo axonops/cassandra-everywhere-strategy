@@ -79,7 +79,7 @@ Tests live in package `org.apache.cassandra.locator` so they can use package-pri
   - `MapSnitch extends AbstractNetworkTopologySnitch`: `MapSnitch put(String ip, String dc, String rack)`; `getDatacenter`/`getRack` look up the map; unknown address → `"unknown-dc"`/`"unknown-rack"`.
   - `Ring`: `static void initCassandra()` (idempotent: `DatabaseDescriptor.clientInitialization(false)`, `setPartitionerUnsafe(Murmur3Partitioner.instance)`, `setEndpointSnitch(SNITCH)`); `static final MapSnitch SNITCH`; `Ring()` wraps a fresh `TokenMetadata`; `Ring node(String ip, String dc, String rack, long... tokens)` (registers in snitch, `updateNormalTokens`); `Ring bootstrap(String ip, String dc, String rack, long... tokens)` (`addBootstrapTokens`); `Ring leave(String ip)`; `Ring move(String ip, long token)`; `Ring remove(String ip)`; `TokenMetadata tm()`; `static InetAddress ip(String)`; `static Token t(long)` (`new Murmur3Partitioner.LongToken(v)`). Every node gets a random host id via `tm.updateHostId` so `getAllEndpoints()` sees it.
 
-- [ ] **Step 1: Write the build files**
+- [x] **Step 1: Write the build files**
 
 Parent `pom.xml`: groupId `com.axonops`, artifactId `cassandra-everywhere-strategy-parent`, version `0.1.0-SNAPSHOT`, packaging `pom`, modules `cassandra-3.11` and `integration-tests` (add the latter in Task 5). Properties: `cassandra.version=3.11.19`, `junit.version=4.13.2`, `mockito.version=4.11.0`, `testcontainers.version=1.20.4`, `maven.compiler.source/target=1.8`, `project.build.sourceEncoding=UTF-8`. Pin `maven-compiler-plugin` 3.13.0, `maven-surefire-plugin` 3.5.2, `maven-failsafe-plugin` 3.5.2, `maven-jar-plugin` 3.4.2, `maven-dependency-plugin` 3.8.1.
 
@@ -87,7 +87,7 @@ Parent `pom.xml`: groupId `com.axonops`, artifactId `cassandra-everywhere-strate
 
 `.gitignore`: `target/`, `.idea/`, `*.iml`, `.vscode/`. (`cassandra-everywhere-strategy.iml` is staged in git; leave it staged — do not delete user files; just ignore future ones.)
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```java
 public class EverywhereStrategyLoadingTest {
@@ -108,21 +108,21 @@ public class EverywhereStrategyLoadingTest {
 }
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 Run: `mvn -B -pl cassandra-3.11 test -Dtest=EverywhereStrategyLoadingTest`
 Expected: compilation failure, `cannot find symbol: class EverywhereStrategy`.
 
-- [ ] **Step 4: Implement the skeleton**
+- [x] **Step 4: Implement the skeleton**
 
 Constructor only, plus stub overrides needed to compile (`calculateNaturalEndpoints` returning `Collections.emptyList()` is acceptable until Task 2). Add `MapSnitch` and `Ring`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `mvn -B verify`
 Expected: `BUILD SUCCESS`, 2 tests run, jar `cassandra-3.11/target/cassandra-everywhere-strategy-cassandra-3.11-0.1.0-SNAPSHOT.jar` exists and `unzip -l` lists only `org/apache/cassandra/locator/EverywhereStrategy*.class` plus `META-INF/`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pom.xml .gitignore cassandra-3.11
@@ -155,7 +155,7 @@ Fixture used by most tests ("standard ring"):
 | 127.0.1.1 | dc2 | r1 | 50 |
 | 127.0.1.2 | dc2 | r1 | 150 |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 @Test public void everyNormalNodeIsAReplicaInRingOrderFromThePrimaryOwner() {
@@ -179,19 +179,19 @@ Fixture used by most tests ("standard ring"):
 
 `strategy(ring)` = `new EverywhereStrategy("ks", ring.tm(), Ring.SNITCH, Collections.emptyMap())`; `ips(...)` maps to `List<InetAddress>`.
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `mvn -B -pl cassandra-3.11 test -Dtest=EverywhereStrategyPlacementTest`
 Expected: FAIL — placement tests get empty lists, RF tests get 0.
 
-- [ ] **Step 3: Implement the four overrides** as described in Interfaces.
+- [x] **Step 3: Implement the four overrides** as described in Interfaces.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `mvn -B -pl cassandra-3.11 test`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cassandra-3.11
@@ -214,7 +214,7 @@ git commit -m "feat: place replicas on every normal node with live per-DC replic
   - `Collection<String> recognizedOptions()` — `Collections.emptySet()`.
   - Decision for spec §8: user-issued `CREATE/ALTER` with options on a Cassandra node is **warned, not rejected** (same path; simplest and never fails a DSE push).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Capture logs with a logback `ListAppender<ILoggingEvent>` attached to logger `org.apache.cassandra.locator.EverywhereStrategy` (logback is on the `cassandra-all` classpath).
 
@@ -226,19 +226,19 @@ Capture logs with a logback `ListAppender<ILoggingEvent>` attached to logger `or
 @Test public void noOptionsProduceNoWarningButOneInfo()                  // 0 WARN, 1 INFO containing "EverywhereStrategy in use for keyspace ks"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `mvn -B -pl cassandra-3.11 test -Dtest=EverywhereStrategyOptionsTest`
 Expected: FAIL — `validateReplicationStrategy` path errors in NTS `maybeWarnOnOptions` (`StorageService` init) and/or no log events.
 
-- [ ] **Step 3: Implement** the constructor logging and the three overrides.
+- [x] **Step 3: Implement** the constructor logging and the three overrides.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `mvn -B -pl cassandra-3.11 test`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cassandra-3.11
@@ -258,7 +258,7 @@ git commit -m "feat: ignore replication options with a warning and log strategy 
 
 `LOCAL_QUORUM` itself needs `DatabaseDescriptor.getLocalDataCenter()`, which is only set by daemon initialisation; it is covered by the integration test (Task 6). `EACH_QUORUM` exercises the same `localQuorumFor(dc)` NTS-only path.
 
-- [ ] **Step 1: Write the tests** (standard ring from Task 2; `Keyspace ks = mock(Keyspace.class); when(ks.getReplicationStrategy()).thenReturn(strategy)`)
+- [x] **Step 1: Write the tests** (standard ring from Task 2; `Keyspace ks = mock(Keyspace.class); when(ks.getReplicationStrategy()).thenReturn(strategy)`)
 
 ```java
 @Test public void eachQuorumSumsPerDcQuorums() { assertEquals(4, ConsistencyLevel.EACH_QUORUM.blockFor(ks)); } // (3/2+1)+(2/2+1)
@@ -267,12 +267,12 @@ git commit -m "feat: ignore replication options with a warning and log strategy 
 @Test public void blockForTracksMembership()   // add 127.0.1.3/dc2 -> EACH_QUORUM 4 (2+2), ALL 6
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `mvn -B -pl cassandra-3.11 test -Dtest=EverywhereStrategyConsistencyTest`
 Expected: PASS (behaviour already implemented in Task 2; this task pins it). If any fail, fix `EverywhereStrategy`, not the test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add cassandra-3.11
@@ -304,7 +304,7 @@ git commit -m "test: pin consistency-level block counts for EverywhereStrategy"
   - If an unrelated DSE→Cassandra incompatibility blocks the cluster, configure around it here **and** record it for `docs/migration-runbook.md` (Task 7).
 - `integration-tests/pom.xml`: depends on `cassandra-everywhere-strategy-cassandra-3.11` (for build order), `org.testcontainers:testcontainers`, junit. Failsafe bound only in profile `integration` (`mvn verify` without the profile skips ITs); failsafe passes `everywhere.jar`, `dse.image`, `cassandra.image`; Failsafe `forkedProcessTimeoutInSeconds` 3600. Container logs are written to `integration-tests/target/container-logs/<name>.log` via `Slf4jLogConsumer`/`ToStringConsumer` dumped on close.
 
-- [ ] **Step 0: Check the images by hand with podman**
+- [x] **Step 0: Check the images by hand with podman**
 
 Before writing the harness, use single `podman` commands to confirm the facts the Dockerfiles depend on. Write findings into the Dockerfiles as comments:
 - `podman run --rm --entrypoint cat docker.io/datastax/dse-server:5.1.31 <path>`: where the DSE 5.1.31 `cassandra.yaml` and `dse.yaml` live and their default authenticator and snitch.
@@ -313,7 +313,7 @@ Before writing the harness, use single `podman` commands to confirm the facts th
 
 Optionally, bring up DSE plus one Cassandra node with a scratch compose file in `$TMPDIR` (`podman-compose -f … up -d`, then `podman exec … nodetool status`) to check the join steps before the first CI run.
 
-- [ ] **Step 1: Write the baseline test**
+- [x] **Step 1: Write the baseline test**
 
 ```java
 public class BaselineWithoutJarIT {
@@ -331,24 +331,24 @@ public class BaselineWithoutJarIT {
 }
 ```
 
-- [ ] **Step 2: Write `ci.yml`**
+- [x] **Step 2: Write `ci.yml`**
 
 - Triggers: `pull_request`, `push` to `main`.
 - Job `build`: `ubuntu-latest`, `actions/checkout@v4`, `actions/setup-java@v4` (`distribution: temurin`, `java-version: '8'`, `cache: maven`), `mvn -B verify`; upload `**/target/surefire-reports` on failure (`actions/upload-artifact@v4`).
 - Job `integration`: `needs: build`; matrix `include: [{dse: '5.1.31', cassandra: '3.11.19'}]`; `mvn -B verify -Pintegration -Ddse.image=datastax/dse-server:${{ matrix.dse }} -Dcassandra.image=cassandra:${{ matrix.cassandra }}`; `timeout-minutes: 60`; upload `integration-tests/target/failsafe-reports` and `integration-tests/target/container-logs` with `if: always()`.
 - `permissions: contents: read`.
 
-- [ ] **Step 3: Write `release.yml`**
+- [x] **Step 3: Write `release.yml`**
 
 - Trigger: `push` tags `v*`. `permissions: contents: write`.
 - Steps: checkout, setup-java (as above), `mvn -B versions:set -DnewVersion=${GITHUB_REF_NAME#v} -DgenerateBackupPoms=false`, `mvn -B verify -Pintegration`, `sha256sum` each `cassandra-*/target/cassandra-everywhere-strategy-*.jar` into `<jar>.sha256`, publish with `softprops/action-gh-release@v2` (`files:` the jars and `.sha256` files, `generate_release_notes: true`).
 
-- [ ] **Step 4: Verify locally what can be verified**
+- [x] **Step 4: Verify locally what can be verified**
 
 Run: `mvn -B verify` → `BUILD SUCCESS`, ITs skipped. No container runtime is available locally, so integration tests are verified in GitHub Actions: commit, `git push -u origin <branch>`, open a draft PR (`gh pr create --draft`), then `gh run watch` and, on failure, `gh run view --log-failed` and `gh run download` for the container-log artifacts.
 Expected: `build` and `integration` jobs green; `BaselineWithoutJarIT` PASS (proves the harness reproduces the production failure).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pom.xml integration-tests .github
@@ -372,7 +372,7 @@ One cluster shared by all methods (`@BeforeClass` start, `@AfterClass` close), m
 2. `CREATE KEYSPACE everywhere_it WITH replication = {'class': 'org.apache.cassandra.locator.EverywhereStrategy'}` and `CREATE TABLE everywhere_it.kv (k text PRIMARY KEY, v text)`. If DSE 5.1.31 refuses EverywhereStrategy for a user keyspace, use a test table in `dse_system` instead and note it in the test.
 3. Then on each Cassandra node in turn: `joinCassandra(i)`; after both have joined, `ALTER KEYSPACE system_auth WITH replication = {'class':'NetworkTopologyStrategy','dc1':1,'dc2':2}` (run on DSE).
 
-- [ ] **Step 1: Write the scenarios**
+- [x] **Step 1: Write the scenarios**
 
 ```java
 @Test public void t01_cassandraNodesJoinAndAgreeOnSchema()   // nodetool status on DSE shows 3 UN; awaitSchemaAgreement(cassandra(0), 2 min); Cassandra log contains "EverywhereStrategy in use for keyspace dse_system"
@@ -398,12 +398,12 @@ One cluster shared by all methods (`@BeforeClass` start, `@AfterClass` close), m
 
 Container restart must keep the fixed IP (use `dockerClient.restartContainerCmd` / `stopContainerCmd` + `startContainerCmd` on the same container, not a new container).
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: push the branch and watch the CI `integration` job (`gh run watch`; `gh run view --log-failed`; `gh run download` for container logs). Locally with Docker the equivalent is `mvn -B -Pintegration verify -Dit.test=MixedClusterIT`.
 Expected: 10 tests PASS. On failure, inspect `integration-tests/target/container-logs/`. A failure caused by `EverywhereStrategy` is fixed in the strategy (with a new unit test in Tasks 2–3 reproducing it); a failure caused by an unrelated DSE incompatibility is configured around in `MixedCluster` and recorded for the runbook.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add integration-tests
@@ -417,23 +417,23 @@ git commit -m "test: cover join, rebuild, consistency, repair, restarts and post
 **Files:**
 - Create: `README.md`, `docs/migration-runbook.md`, `NOTICE`
 
-- [ ] **Step 1: Write `NOTICE`**
+- [x] **Step 1: Write `NOTICE`**
 
 Project name and copyright AxonOps; states that behaviour of DataStax's Apache-2.0 `EverywhereStrategy` (github.com/datastax/cassandra) was used as a behavioural reference, no code copied.
 
-- [ ] **Step 2: Write `README.md`**
+- [x] **Step 2: Write `README.md`**
 
 What it is and why (the restart-reset problem in two short paragraphs), compatibility table (Cassandra 3.11.19 ↔ DSE 5.1.31 tested), install (copy jar to `lib/` of every Cassandra node before it first joins), behaviour summary (replicas on every token-owning node; per-DC RF = DC node count; options ignored with WARN; INFO log line to confirm loading), build (`mvn verify`, `mvn -Pintegration verify` needs Docker), the list of DSE 5.1.31 EverywhereStrategy keyspaces as printed by `BaselineWithoutJarIT`, limitation: `auto_bootstrap: true` join is not supported. No link to or mention of other third-party implementations.
 
-- [ ] **Step 3: Write `docs/migration-runbook.md`**
+- [x] **Step 3: Write `docs/migration-runbook.md`**
 
 Ordered steps: prerequisites (matching cluster name, `GossipingPropertyFileSnitch`, Cassandra-side auth classes `PasswordAuthenticator`/`CassandraAuthorizer`/`CassandraRoleManager`); install jar; `auto_bootstrap: false`; start nodes one at a time; `ALTER KEYSPACE system_auth` (and application keyspaces) to include the new DC; `nodetool rebuild -- <dse-dc>` on each node; verify (INFO log line, `nodetool describecluster`, `nodetool getendpoints`); cut clients over; decommission DSE nodes; `ALTER` each EverywhereStrategy keyspace to `NetworkTopologyStrategy` with an explicit RF; `nodetool repair -full` on those keyspaces; remove the jar; rolling restart. Include any workarounds recorded in Tasks 5–6. Note that a node is a full replica for these keyspaces as soon as it joins, so do not serve reads from it until `rebuild` completes.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `mvn -B verify` → `BUILD SUCCESS`. Check every command in the runbook matches what `MixedClusterIT` runs.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md NOTICE docs/migration-runbook.md
