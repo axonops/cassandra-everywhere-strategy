@@ -26,13 +26,14 @@
 
   <modules>
     <module>cassandra-3.11</module>
+    <module>integration-tests</module>
   </modules>
 
   <properties>
     <cassandra.version>3.11.19</cassandra.version>
     <junit.version>4.13.2</junit.version>
     <mockito.version>4.11.0</mockito.version>
-    <testcontainers.version>1.20.4</testcontainers.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
