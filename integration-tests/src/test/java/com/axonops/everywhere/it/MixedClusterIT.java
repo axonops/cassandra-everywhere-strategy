@@ -206,17 +206,25 @@ public class MixedClusterIT {
         // dc2 has RF 2 for an EverywhereStrategy keyspace, so LOCAL_QUORUM there needs both Cassandra nodes;
         // a global count (3 nodes, quorum 2, two of them up) would wrongly let it through.
         cluster.stop(c1());
-        Shell.awaitNodeStates(c0(), states("UN", "UN", "DN"), SHORT);
+        try {
+            Shell.awaitNodeStates(c0(), states("UN", "UN", "DN"), SHORT);
+            assertRead(c0(), "LOCAL_ONE", KEY, VALUE);
 
-        ExecResult r = Shell.cqlRaw(c0(), USER, PASS, "LOCAL_QUORUM",
-                "SELECT v FROM everywhere_it.kv WHERE k = '" + KEY + "'");
-        String out = r.getStdout() + r.getStderr();
-        System.out.println("LOCAL_QUORUM read with one of two dc2 nodes down: exit " + r.getExitCode() + "\n" + out);
-        assertNotEquals("a LOCAL_QUORUM read with one of two dc2 nodes down must fail", 0, r.getExitCode());
-        assertTrue("expected Unavailable, got:\n" + out, out.contains("Unavailable"));
-        assertRead(c0(), "LOCAL_ONE", KEY, VALUE);
-
-        cluster.restart(c1());
+            ExecResult r = Shell.cqlRaw(c0(), USER, PASS, "LOCAL_QUORUM",
+                    "SELECT v FROM everywhere_it.kv WHERE k = '" + KEY + "'");
+            String out = r.getStdout() + r.getStderr();
+            System.out.println("LOCAL_QUORUM read with one of two dc2 nodes down: exit " + r.getExitCode() + "\n"
+                    + out);
+            assertNotEquals("a LOCAL_QUORUM read with one of two dc2 nodes down must fail", 0, r.getExitCode());
+            // cqlsh connects to c0 only, so the driver's retry of the Unavailable on the next host finds none and
+            // reports NoHostAvailable (as in t09). The LOCAL_ONE reads either side show c0 itself is available.
+            assertTrue("expected NoHostAvailable/Unavailable, got:\n" + out,
+                    out.contains("NoHostAvailable") || out.contains("Unavailable"));
+            assertRead(c0(), "LOCAL_ONE", KEY, VALUE);
+        } finally {
+            // Bring c1 back even if an assertion failed, so the later tests start from a full cluster.
+            cluster.restart(c1());
+        }
         Shell.awaitNodeStates(c0(), states("UN", "UN", "UN"), LONG);
         Shell.awaitNodeStates(c1(), states("UN", "UN", "UN"), LONG);
         Shell.awaitNodeStates(dse(), states("UN", "UN", "UN"), LONG);
