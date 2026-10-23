@@ -17,7 +17,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, component-versions]
 
 permissions:
   contents: read
