@@ -34,6 +34,11 @@ public final class Shell {
 
     private static final long POLL_MILLIS = 2000;
     private static final Pattern SCHEMA_LINE = Pattern.compile("^\\s*(\\S+):\\s*\\[(.*)\\]\\s*$");
+    private static final Pattern STATUS_LINE = Pattern.compile("^([UD][NLJM])\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})\\s.*$");
+    private static final Pattern HOST_ID =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    private static final Pattern CQL_SEPARATOR = Pattern.compile("^\\s*-+(\\+-+)*\\s*$");
+    private static final Pattern CQL_ROW_COUNT = Pattern.compile("^\\s*\\(\\d+ rows?\\)\\s*$");
 
     private Shell() {
     }
@@ -144,6 +149,85 @@ public final class Shell {
             }
             sleep();
         }
+    }
+
+    /**
+     * Waits until {@code nodetool status} on {@code c} lists exactly the addresses in {@code expected}, each in
+     * its expected state (e.g. {@code "UN"}, {@code "DN"}).
+     */
+    public static void awaitNodeStates(GenericContainer<?> c, Map<String, String> expected, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        String last = "";
+        while (true) {
+            ExecResult r = exec(c, "nodetool", "status");
+            last = r.getStdout() + r.getStderr();
+            if (r.getExitCode() == 0 && nodeStates(r.getStdout()).equals(expected)) {
+                return;
+            }
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("nodetool status on " + MixedCluster.ipOf(c) + " did not show " + expected
+                        + " within " + timeout + ". Last status:\n" + last);
+            }
+            sleep();
+        }
+    }
+
+    /** The host ID that {@code nodetool status} on {@code c} reports for {@code ip}. */
+    public static String hostId(GenericContainer<?> c, String ip) {
+        return hostId(nodetool(c, "status"), ip);
+    }
+
+    /**
+     * Parses the result table of a cqlsh query into rows of trimmed column values. Lines before the header
+     * (such as "Consistency level set to ...") and the "(N rows)" footer are skipped.
+     */
+    public static List<List<String>> cqlRows(String cqlshOutput) {
+        List<List<String>> rows = new ArrayList<>();
+        boolean inRows = false;
+        for (String line : cqlshOutput.split("\\r?\\n")) {
+            if (!inRows) {
+                inRows = CQL_SEPARATOR.matcher(line).matches();
+                continue;
+            }
+            if (CQL_ROW_COUNT.matcher(line).matches()) {
+                break;
+            }
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            List<String> row = new ArrayList<>();
+            for (String col : line.split("\\|", -1)) {
+                row.add(col.trim());
+            }
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** Parses {@code nodetool status} into address -> state (e.g. {@code "UN"}), across all datacenters. */
+    static Map<String, String> nodeStates(String status) {
+        Map<String, String> states = new LinkedHashMap<>();
+        for (String line : status.split("\\r?\\n")) {
+            Matcher m = STATUS_LINE.matcher(line.trim());
+            if (m.matches()) {
+                states.put(m.group(2), m.group(1));
+            }
+        }
+        return states;
+    }
+
+    /** The host ID on the {@code nodetool status} line for {@code ip}. */
+    static String hostId(String status, String ip) {
+        for (String line : status.split("\\r?\\n")) {
+            Matcher m = STATUS_LINE.matcher(line.trim());
+            if (m.matches() && m.group(2).equals(ip)) {
+                Matcher id = HOST_ID.matcher(line);
+                if (id.find()) {
+                    return id.group();
+                }
+            }
+        }
+        throw new AssertionError("No host ID for " + ip + " in nodetool status:\n" + status);
     }
 
     /** Parses the "Schema versions:" section of {@code nodetool describecluster} into version -> addresses. */

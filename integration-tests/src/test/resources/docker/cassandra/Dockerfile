@@ -41,4 +41,5 @@ RUN sed -i \
  && grep -q '^role_manager: CassandraRoleManager' /etc/cassandra/cassandra.yaml
 
 FROM nojar AS withjar
+# Keep this path in sync with MixedCluster.JAR_PATH_IN_CONTAINER.
 COPY everywhere.jar /opt/cassandra/lib/cassandra-everywhere-strategy.jar

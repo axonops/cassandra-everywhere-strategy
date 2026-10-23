@@ -49,6 +49,8 @@ public final class MixedCluster implements AutoCloseable {
     public static final String DSE_DC = "dc1";
     public static final String CASSANDRA_DC = "dc2";
     public static final String RACK = "r1";
+    /** Where the {@code withjar} image puts the EverywhereStrategy jar (see docker/cassandra/Dockerfile). */
+    public static final String JAR_PATH_IN_CONTAINER = "/opt/cassandra/lib/cassandra-everywhere-strategy.jar";
 
     static final String IP_LABEL = "com.axonops.everywhere.it.ip";
     static final String NAME_LABEL = "com.axonops.everywhere.it.name";
