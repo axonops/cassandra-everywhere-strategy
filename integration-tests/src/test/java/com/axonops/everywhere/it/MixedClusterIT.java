@@ -54,8 +54,12 @@ import org.testcontainers.containers.GenericContainer;
  * one shared by the Cassandra nodes), so schema agreement is checked among the Cassandra nodes only until DSE
  * has been removed in {@link #t10_postMigrationWithoutTheJar()}.
  *
- * <p>Credentials are test-only. The {@code cassandra} superuser is used only on DSE before {@code system_auth}
- * is given replicas in dc2, because it logs in at QUORUM; everything afterwards runs as {@code migrator}.
+ * <p>The setup follows the runbook's add-DC order: all DDL on DSE first, {@code system_auth} moved to
+ * NetworkTopologyStrategy with dc1 only before any Cassandra node joins (so the joining nodes own none of it),
+ * then the joins, then dc2 added to {@code system_auth} and rebuilt on each Cassandra node straight away.
+ *
+ * <p>Credentials are test-only. The {@code cassandra} superuser is used only on DSE before the Cassandra nodes
+ * join, because it logs in at QUORUM; everything afterwards runs as {@code migrator}.
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class MixedClusterIT {
@@ -74,9 +78,12 @@ public class MixedClusterIT {
     private static final String STRATEGY_IN_USE = "EverywhereStrategy in use for keyspace";
     private static final Pattern REPLICATION_CLASS = Pattern.compile("'class': '([^']+)'");
 
-    /** Keyspaces whose dc1 data the Cassandra nodes rebuild (Ruling H: a whole-node rebuild fails on dse_perf). */
+    /**
+     * Keyspaces whose dc1 data the Cassandra nodes rebuild in t02 (Ruling H: a whole-node rebuild fails on
+     * dse_perf). {@code system_auth} is rebuilt earlier, in the setup, straight after dc2 is added to it.
+     */
     private static final List<String> REBUILD_KEYSPACES =
-            Arrays.asList("everywhere_it", "system_auth", "dse_system", "dse_insights");
+            Arrays.asList("everywhere_it", "dse_system", "dse_insights");
 
     /** Written at LOCAL_QUORUM via DSE in t05 and read again after every disruptive step. */
     private static final String KEY = "lq-dse";
@@ -106,13 +113,32 @@ public class MixedClusterIT {
                 "CREATE TABLE everywhere_it.kv (k text PRIMARY KEY, v text)");
         Shell.cql(dse, "cassandra", "cassandra", "ONE",
                 "INSERT INTO everywhere_it.kv (k, v) VALUES ('seed', 'seeded-on-dse')");
-        // Last statement as 'cassandra': it reads its role at QUORUM, which needs dc2 data from here on.
+        // Before any join: SimpleStrategy -> NTS with dc1 only, so the joining nodes take none of its ranges.
+        // Last statement as 'cassandra'.
         Shell.cql(dse, "cassandra", "cassandra", "ONE",
-                "ALTER KEYSPACE system_auth WITH replication = "
-                        + "{'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 2}");
+                "ALTER KEYSPACE system_auth WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 1}");
 
         cluster.joinCassandra(0);
         cluster.joinCassandra(1);
+        Shell.awaitNodeStates(dse, states("UN", "UN", "UN"), LONG);
+        for (GenericContainer<?> node : cluster.cassandra()) {
+            Shell.awaitNodeStates(node, states("UN", "UN", "UN"), LONG);
+        }
+
+        // Only now add dc2 to system_auth, as migrator (LOCAL_ONE login, served by DSE), and rebuild it at once,
+        // one node at a time, before anyone logs in on a Cassandra node.
+        Shell.cql(dse, USER, PASS, "ONE",
+                "ALTER KEYSPACE system_auth WITH replication = "
+                        + "{'class': 'NetworkTopologyStrategy', 'dc1': 1, 'dc2': 2}");
+        for (GenericContainer<?> node : cluster.cassandra()) {
+            // A rebuild run before the node has the new replication would exit 0 and stream nothing.
+            awaitEndpoints(node, "system_auth", "roles", USER, DSE_IP, C0_IP, C1_IP);
+        }
+        for (GenericContainer<?> node : cluster.cassandra()) {
+            System.out.println("nodetool rebuild -ks system_auth -- " + MixedCluster.DSE_DC + " on "
+                    + cluster.ip(node));
+            Shell.nodetool(node, "rebuild", "-ks", "system_auth", "--", MixedCluster.DSE_DC);
+        }
     }
 
     @AfterClass
@@ -129,7 +155,7 @@ public class MixedClusterIT {
         Shell.awaitLog(c0(), STRATEGY_IN_USE + " dse_system", SHORT);
         Shell.awaitLog(c1(), STRATEGY_IN_USE + " dse_system", SHORT);
         assertNoSchemaErrors();
-        // The keyspace sets are compared in t03: no Cassandra node can log in before t02 rebuilds system_auth.
+        // The keyspace sets and logins on the Cassandra nodes are checked in t03, after t02's rebuilds.
     }
 
     @Test
@@ -156,14 +182,8 @@ public class MixedClusterIT {
 
     @Test
     public void t04_everyNodeIsAReplica() {
-        String out = Shell.nodetool(c0(), "getendpoints", "everywhere_it", "kv", "somekey");
-        Set<String> endpoints = new TreeSet<>();
-        for (String line : out.split("\\r?\\n")) {
-            if (!line.trim().isEmpty()) {
-                endpoints.add(line.trim().replaceFirst("^/", ""));
-            }
-        }
-        assertEquals(new TreeSet<>(Arrays.asList(DSE_IP, C0_IP, C1_IP)), endpoints);
+        assertEquals(new TreeSet<>(Arrays.asList(DSE_IP, C0_IP, C1_IP)),
+                endpoints(c0(), "everywhere_it", "kv", "somekey"));
     }
 
     @Test
@@ -179,6 +199,29 @@ public class MixedClusterIT {
             write(c0(), cl, key, "at-" + key);
             assertRead(c0(), cl, key, "at-" + key);
         }
+    }
+
+    @Test
+    public void t05b_localQuorumUsesThePerDcReplicationFactor() {
+        // dc2 has RF 2 for an EverywhereStrategy keyspace, so LOCAL_QUORUM there needs both Cassandra nodes;
+        // a global count (3 nodes, quorum 2, two of them up) would wrongly let it through.
+        cluster.stop(c1());
+        Shell.awaitNodeStates(c0(), states("UN", "UN", "DN"), SHORT);
+
+        ExecResult r = Shell.cqlRaw(c0(), USER, PASS, "LOCAL_QUORUM",
+                "SELECT v FROM everywhere_it.kv WHERE k = '" + KEY + "'");
+        String out = r.getStdout() + r.getStderr();
+        System.out.println("LOCAL_QUORUM read with one of two dc2 nodes down: exit " + r.getExitCode() + "\n" + out);
+        assertNotEquals("a LOCAL_QUORUM read with one of two dc2 nodes down must fail", 0, r.getExitCode());
+        assertTrue("expected Unavailable, got:\n" + out, out.contains("Unavailable"));
+        assertRead(c0(), "LOCAL_ONE", KEY, VALUE);
+
+        cluster.restart(c1());
+        Shell.awaitNodeStates(c0(), states("UN", "UN", "UN"), LONG);
+        Shell.awaitNodeStates(c1(), states("UN", "UN", "UN"), LONG);
+        Shell.awaitNodeStates(dse(), states("UN", "UN", "UN"), LONG);
+        Shell.awaitCqlLogin(c1(), USER, PASS, SHORT);
+        assertRead(c1(), "LOCAL_QUORUM", KEY, VALUE);
     }
 
     @Test
@@ -388,6 +431,32 @@ public class MixedClusterIT {
             }
             sleep(2000);
         }
+    }
+
+    /** Waits until {@code nodetool getendpoints} on {@code node} lists exactly {@code expectedIps}. */
+    private static void awaitEndpoints(GenericContainer<?> node, String keyspace, String table, String key,
+                                       String... expectedIps) {
+        Set<String> expected = new TreeSet<>(Arrays.asList(expectedIps));
+        long deadline = System.nanoTime() + SHORT.toNanos();
+        Set<String> last;
+        while (!(last = endpoints(node, keyspace, table, key)).equals(expected)) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("getendpoints " + keyspace + " " + table + " " + key + " on "
+                        + cluster.ip(node) + " still " + last + " after " + SHORT + ", expected " + expected);
+            }
+            sleep(2000);
+        }
+    }
+
+    private static Set<String> endpoints(GenericContainer<?> node, String keyspace, String table, String key) {
+        String out = Shell.nodetool(node, "getendpoints", keyspace, table, key);
+        Set<String> endpoints = new TreeSet<>();
+        for (String line : out.split("\\r?\\n")) {
+            if (!line.trim().isEmpty()) {
+                endpoints.add(line.trim().replaceFirst("^/", ""));
+            }
+        }
+        return endpoints;
     }
 
     private static List<String> keyspacesUsing(GenericContainer<?> node, String strategyClass) {
