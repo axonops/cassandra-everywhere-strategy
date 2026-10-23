@@ -1,6 +1,6 @@
 # Migration runbook: DSE 5.1 to Apache Cassandra 3.11 with EverywhereStrategy
 
-This runbook adds an Apache Cassandra 3.11 datacenter to a live DSE 5.1 cluster, moves traffic over, and removes DSE. Every command below was exercised in CI against DSE 5.1.31 and Apache Cassandra 3.11.19 (generalised with placeholders):
+This runbook adds an Apache Cassandra 3.11 datacenter to a live DSE 5.1 cluster, moves traffic over, and removes DSE. The sequence is based on the one verified in CI (`MixedClusterIT`) against DSE 5.1.31 and Apache Cassandra 3.11.19, generalised with placeholders. Steps marked "recommended, not exercised in CI" are standard add-/remove-DC practice that the CI run did not cover:
 
 - `<dse-dc>`: name of the existing DSE datacenter.
 - `<new-dc>`: name of the new Cassandra datacenter.
@@ -33,13 +33,25 @@ Do all DDL first. Once `system_auth` has replicas in a DC with no data, the defa
 
    This is the last statement to run as `cassandra`. Use `migrator` from here on.
 
+3. Alter application keyspaces, and any other `SimpleStrategy` keyspace you want to keep (`system_distributed`, `system_traces`, `dse_*` that you keep), to `NetworkTopologyStrategy` including `<new-dc>`. Do this before any Cassandra node joins and before rebuild; a keyspace that stays on `SimpleStrategy` or on `<dse-dc>` only gets no data in the new DC and `nodetool rebuild -ks` fails for it. Recommended, not exercised in CI (generic add-DC practice):
+
+   ```sql
+   ALTER KEYSPACE <ks> WITH replication = {'class': 'NetworkTopologyStrategy', '<dse-dc>': <n>, '<new-dc>': <m>};
+   ```
+
 ## 2. Install the jar
 
 Copy `cassandra-everywhere-strategy-cassandra-3.11-<version>.jar` into `lib/` on every Cassandra node before it first starts (see the README for the checksum check).
 
 ## 3. Join the Cassandra nodes
 
-Start the nodes one at a time with auto bootstrap off (the CI runs pass `-Dcassandra.auto_bootstrap=false` to the JVM). Wait for `Starting listening for CQL clients` before starting the next one. Bootstrap with `auto_bootstrap: true` is not supported.
+Set auto bootstrap off before the node first starts. `auto_bootstrap` is not in the default `cassandra.yaml`, so add this line:
+
+```yaml
+auto_bootstrap: false
+```
+
+The equivalent JVM option, which is what CI used, is `-Dcassandra.auto_bootstrap=false`. Start the nodes one at a time and wait for `Starting listening for CQL clients` before starting the next one. Bootstrap (`auto_bootstrap: true`) is not a supported path: if a node was started with the default by accident, stop it rather than letting it bootstrap.
 
 Confirm the jar loaded:
 
@@ -83,7 +95,7 @@ nodetool repair -full <ks>
 
 Restarting DSE nodes does not harm the Cassandra nodes: DSE puts `dse_system` back on EverywhereStrategy on start, and the Cassandra nodes stay `UN` without errors. Keep the jar installed until DSE is gone.
 
-With the whole DSE DC down, `LOCAL_QUORUM` and `QUORUM` keep working in the Cassandra DC, and `ALL` fails fast with `NoHostAvailable`. This is expected.
+With the whole DSE DC down, `LOCAL_QUORUM` keeps working in the Cassandra DC, and `ALL` fails fast with `NoHostAvailable`. This is expected. `QUORUM` also worked in CI, but only because the Cassandra DC held a majority of all nodes (1 DSE node, 2 Cassandra nodes). If the DSE DC has as many nodes as the Cassandra DC or more, `QUORUM` fails while DSE is down.
 
 ## 6. Cut clients over
 
@@ -105,20 +117,30 @@ Point application clients at the Cassandra DC (local DC `<new-dc>`). Untested he
    ALTER KEYSPACE <ks> WITH replication = {'class': 'NetworkTopologyStrategy', '<new-dc>': <rf>};
    ```
 
-3. Run a full repair on those keyspaces:
+   Then drop `<dse-dc>` from every other `NetworkTopologyStrategy` keyspace (application keyspaces, `system_distributed`, `system_traces`, any `dse_*` you keep) with the same `ALTER`. Otherwise `QUORUM` and `EACH_QUORUM` stay fragile or fail once DSE is gone. Recommended, not exercised in CI (generic remove-DC practice).
+
+3. Run a full repair on those keyspaces (recommended, not exercised in CI):
 
    ```bash
    nodetool repair -full <ks>
    ```
 
-4. Remove the jar from `lib/` on every Cassandra node:
+4. Check that no keyspace still uses EverywhereStrategy:
+
+   ```sql
+   SELECT keyspace_name, replication FROM system_schema.keyspaces;
+   ```
+
+   Do not remove the jar while any row shows `org.apache.cassandra.locator.EverywhereStrategy`: the next restart would fail with `Unable to find replication strategy class`.
+
+5. Remove the jar from `lib/` on every Cassandra node (recommended, not exercised in CI: the exact path is yours; CI removed the jar file from `lib/`):
 
    ```bash
    rm $CASSANDRA_HOME/lib/cassandra-everywhere-strategy*.jar
    ```
 
-5. Update `seeds` in `cassandra.yaml` to live Cassandra nodes. Restarts with a dead DSE seed still worked in CI, but gossip logs `Received an ack from ..., who isn't a seed. Ensure your seed list includes a live node.`
-6. Rolling restart, one node at a time. Wait until it shows `UN` in `nodetool status` before restarting the next.
+6. Update `seeds` in `cassandra.yaml` to live Cassandra nodes. Restarts with a dead DSE seed still worked in CI, but gossip logs (recommended, not exercised in CI: the seed update itself) `Received an ack from ..., who isn't a seed. Ensure your seed list includes a live node.`
+7. Rolling restart, one node at a time. Wait until it shows `UN` in `nodetool status` before restarting the next.
 
 ## 8. Final checks
 
