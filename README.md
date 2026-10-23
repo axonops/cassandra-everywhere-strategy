@@ -48,6 +48,7 @@ Releases are built by pushing a `v*` tag.
 
 - Joining a node with `auto_bootstrap: true` is not supported. Use `auto_bootstrap: false`, then `nodetool rebuild`. See the [migration runbook](docs/migration-runbook.md).
 - While DSE nodes are in the ring, `nodetool describecluster` shows two schema versions (DSE and Cassandra). This is expected; see the runbook.
+- `EACH_QUORUM` writes can fail when a datacenter has only pending (joining) nodes and no normal nodes. That happens only on unsupported paths: joining a new DC with `auto_bootstrap: true`, or replacing the only node of a DC.
 
 ## DSE 5.1.31 keyspaces that use EverywhereStrategy
 
@@ -63,6 +64,8 @@ SELECT keyspace_name, replication FROM system_schema.keyspaces;
 ```
 
 ## Build
+
+Building requires JDK 8 (CI uses Temurin 8): the Cassandra 3.11 classes the unit tests load do not run on newer JDKs.
 
 ```bash
 mvn verify                  # unit tests
