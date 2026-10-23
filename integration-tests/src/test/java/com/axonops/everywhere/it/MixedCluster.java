@@ -91,6 +91,8 @@ public final class MixedCluster implements AutoCloseable {
     }
 
     private void startDse() {
+        // Resolve the Cassandra image first so a missing everywhere.jar fails before DSE spends a minute starting.
+        ImageFromDockerfile cassandraImage = cassandraImage();
         network = Network.builder()
                 .createNetworkCmdModifier(cmd -> cmd.withIpam(new Ipam()
                         .withConfig(new Ipam.Config().withSubnet(subnet + ".0/24"))))
@@ -107,9 +109,8 @@ public final class MixedCluster implements AutoCloseable {
         dse.start();
         Shell.awaitCqlLogin(dse, "cassandra", "cassandra", Duration.ofMinutes(3));
 
-        ImageFromDockerfile image = cassandraImage();
         for (int i = 0; i < cassandraNodes; i++) {
-            cassandra.add(node(image, "cassandra-" + i, subnet + "." + (20 + i))
+            cassandra.add(node(cassandraImage, "cassandra-" + i, subnet + "." + (20 + i))
                     .withEnv("CASSANDRA_CLUSTER_NAME", CLUSTER_NAME)
                     .withEnv("CASSANDRA_SEEDS", seed())
                     .withEnv("CASSANDRA_DC", CASSANDRA_DC)
